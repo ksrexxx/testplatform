@@ -16,6 +16,8 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - exam-network
 
   redis:
     image: redis:7-alpine
@@ -26,10 +28,12 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+    networks:
+      - exam-network
 
   api:
     build:
-      context: .
+      context: ./backend
       dockerfile: docker/Dockerfile.api
     command: >
       sh -c "
@@ -55,20 +59,22 @@ services:
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production-min-32-chars}
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
-      - CORS_ORIGINS=http://localhost:3000,http://localhost:8080,http://127.0.0.1:3000
+      - CORS_ORIGINS=http://localhost:3000,http://frontend:3000,http://127.0.0.1:3000
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     volumes:
-      - ./:/app
+      - ./backend:/app
       - upload_data:/tmp/uploads
       - report_data:/tmp/reports
+    networks:
+      - exam-network
 
   celery-worker:
     build:
-      context: .
+      context: ./backend
       dockerfile: docker/Dockerfile.worker
     command: celery -A app.tasks.celery_app worker --loglevel=info
     environment:
@@ -87,13 +93,15 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./:/app
+      - ./backend:/app
       - upload_data:/tmp/uploads
       - report_data:/tmp/reports
+    networks:
+      - exam-network
 
   celery-beat:
     build:
-      context: .
+      context: ./backend
       dockerfile: docker/Dockerfile.worker
     command: celery -A app.tasks.celery_app beat --loglevel=info
     environment:
@@ -112,9 +120,28 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - ./:/app
+      - ./backend:/app
+    networks:
+      - exam-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+    depends_on:
+      - api
+    networks:
+      - exam-network
 
 volumes:
   postgres_data:
   upload_data:
   report_data:
+
+networks:
+  exam-network:
+    driver: bridge

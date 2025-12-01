@@ -1,57 +1,63 @@
-.PHONY: help build up down logs shell migrate seed test clean
+.PHONY: help up down logs restart build clean frontend-logs backend-logs db-shell redis-shell test
 
 help:
-	@echo "Exam Platform Backend - Available commands:"
+	@echo "Exam Platform - Available commands:"
 	@echo ""
-	@echo "  make build       - Build Docker images"
-	@echo "  make up          - Start all services"
-	@echo "  make down        - Stop all services"
-	@echo "  make logs        - View logs"
-	@echo "  make shell       - Open shell in API container"
-	@echo "  make migrate     - Run database migrations"
-	@echo "  make seed        - Run seed data"
-	@echo "  make test        - Run tests"
-	@echo "  make clean       - Remove all containers and volumes"
+	@echo "  make up              - Start all services (frontend + backend)"
+	@echo "  make down            - Stop all services"
+	@echo "  make restart         - Restart all services"
+	@echo "  make logs            - View all logs"
+	@echo "  make build           - Build all Docker images"
+	@echo "  make clean           - Stop and remove all containers and volumes"
 	@echo ""
-
-build:
-	docker compose build
+	@echo "  make frontend-logs   - View frontend logs only"
+	@echo "  make backend-logs    - View backend API logs only"
+	@echo "  make db-shell        - Open PostgreSQL shell"
+	@echo "  make redis-shell     - Open Redis CLI"
+	@echo ""
+	@echo "  make test            - Run backend tests"
+	@echo "  make seed            - Run database seed"
+	@echo ""
 
 up:
+	@echo "Starting all services..."
 	docker compose up -d
-	@echo "Services started. API available at http://localhost:8000"
-	@echo "API docs at http://localhost:8000/docs"
+	@echo ""
+	@echo "✅ All services started!"
+	@echo ""
+	@echo "Frontend:  http://localhost:3000"
+	@echo "Backend:   http://localhost:8000"
+	@echo "API Docs:  http://localhost:8000/docs"
+	@echo ""
+	@echo "Default admin credentials:"
+	@echo "Email:     admin@exam.kz"
+	@echo "Password:  admin123456"
 
 down:
 	docker compose down
 
+restart:
+	docker compose restart
+
 logs:
 	docker compose logs -f
 
-logs-api:
+frontend-logs:
+	docker compose logs -f frontend
+
+backend-logs:
 	docker compose logs -f api
 
-logs-worker:
-	docker compose logs -f celery-worker
-
-shell:
-	docker compose exec api /bin/bash
-
-migrate:
-	docker compose exec api alembic upgrade head
-
-seed:
-	docker compose exec api python scripts/seed.py
-
-test:
-	docker compose exec api pytest
-
-test-cov:
-	docker compose exec api pytest --cov=app --cov-report=html
+build:
+	docker compose build --no-cache
 
 clean:
-	docker compose down -v
-	rm -rf __pycache__ .pytest_cache .coverage htmlcov
+	@echo "WARNING: This will remove all data!"
+	@read -p "Are you sure? [y/N] " -n 1 -r; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]]; then \
+		docker compose down -v; \
+		echo "All containers and volumes removed."; \
+	fi
 
 db-shell:
 	docker compose exec db psql -U exam_user -d exam_platform
@@ -59,15 +65,35 @@ db-shell:
 redis-shell:
 	docker compose exec redis redis-cli
 
-# Local development without Docker
-local-setup:
-	./scripts/setup_local.sh
+test:
+	docker compose exec api pytest -v
 
-local-run:
-	source venv/bin/activate && uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+seed:
+	docker compose exec api python scripts/seed.py
 
-local-worker:
-	source venv/bin/activate && celery -A app.tasks.celery_app worker --loglevel=info
+# Frontend specific
+frontend-build:
+	docker compose build frontend
 
-local-beat:
-	source venv/bin/activate && celery -A app.tasks.celery_app beat --loglevel=info
+frontend-restart:
+	docker compose restart frontend
+
+# Backend specific
+backend-build:
+	docker compose build api celery-worker celery-beat
+
+backend-restart:
+	docker compose restart api celery-worker celery-beat
+
+# Health checks
+health:
+	@echo "Checking services health..."
+	@curl -s http://localhost:8000/health | jq . || echo "❌ API is not responding"
+	@curl -s http://localhost:3000 > /dev/null && echo "✅ Frontend is running" || echo "❌ Frontend is not running"
+	@docker compose exec db pg_isready -U exam_user > /dev/null && echo "✅ PostgreSQL is running" || echo "❌ PostgreSQL is not running"
+	@docker compose exec redis redis-cli ping > /dev/null && echo "✅ Redis is running" || echo "❌ Redis is not running"
+
+# Status
+status:
+	@echo "Services status:"
+	@docker compose ps
